@@ -9,6 +9,7 @@ const LocalStrategy = require('passport-local').Strategy;
 const db = require('../database/index');
 const { sequelize, Account, Listing, Artist } = require('../database/config');
 const SequelizeStore = require('connect-session-sequelize')(session.Store);
+const axios = require('axios');
 
 /**
  * PASSPORT SETUP
@@ -201,26 +202,40 @@ app.post('/signup', (req, res) => {
   if(!password1 || !username || !email || solo === undefined || !contact_email || !city || !name){
     res.status(500).send("Please give all required information");
   } else if (password1 === password2) {
-    const newAccount = {
-      username,
-      email,
-      password: password1,
-      solo,
-      city,
-      name,
-      contact_email,
-    };
-    db.makeAccount(newAccount)
-      .then(account => db.makeArtist(account.id, newAccount)
-        .then(() => {
-          req.login(account, (err) => {
-            if (err) throw err;
-            res.send('success')
-          });
+    axios.get(`https://api.trumail.io/v2/lookups/json?email=${email}`)
+      .then(emailVal => {
+        return axios.get(`https://api.trumail.io/v2/lookups/json?email=${contact_email}`)
+        .then(contactEmailVal => {
+          if(!emailVal.validFormat && !contactEmailVal.validFormat) {
+            res.send(`Invalid email format`);
+          } else if (!emailVal.hostExists && !contactEmailVal.hostExists) {
+            res.send(`Invalid host`);
+          } else if (emailVal.deliverable && contactEmailVal.deliverable) {
+            const newAccount = {
+              username,
+              email,
+              password: password1,
+              solo,
+              city,
+              name,
+              contact_email,
+            };
+            db.makeAccount(newAccount)
+              .then(account => db.makeArtist(account.id, newAccount)
+                .then(() => {
+                  req.login(account, (err) => {
+                    if (err) throw err;
+                    res.send('success')
+                  });
+                })
+              )
+              .catch((error) => {
+                res.status(500).send("Account already exists!");
+              })
+          } else {
+            res.send(`invalid email`);
+          }
         })
-      )
-      .catch((error) => {
-        res.status(500).send("Account already exists!");
       })
   } else {
     res.status(500).send("Passwords don't match!");
